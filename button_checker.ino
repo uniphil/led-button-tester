@@ -7,11 +7,7 @@
 #define MID_PIN      1
 #define CATHODE_PIN  2  // always input
 
-#define ANODE_EPS  150  // allowable difference from ADC reading
-#define MID_EPS     80
-#define CATHODE_EPS 80
-
-#define RESET_PIN    3
+#define BUTTON_PIN    3
 
 #define CONNECT_OK   9
 #define CONNECT_NOK 10
@@ -31,13 +27,98 @@ enum Result {Pending, Passed, Failed} button_open, button_closed;
 
 enum ConnectionState { Disconnected, Connected, ConnectionError } connectionState;
 
-//enum CheckState {
-//  Waiting
-//}
+enum CheckState {
+  JustChillin,
+  Testable,
+  Testing,
+  Oops,
+} state;
+
+bool is_disconnected() {
+  pinMode(ANODE_PIN, INPUT_PULLUP);
+  delayMicroseconds(10);
+  uint16_t ano_val = analogRead(ANODE_PIN);
+  uint16_t cath_val = analogRead(CATHODE_PIN);
+  return 1000 < ano_val && cath_val <= 2;
+}
+
+bool is_connected() {
+  pinMode(ANODE_PIN, INPUT_PULLUP);
+  delayMicroseconds(10);
+  uint16_t ano_val = analogRead(ANODE_PIN);
+  uint16_t mid_val = analogRead(MID_PIN);
+  uint16_t cath_val = analogRead(CATHODE_PIN);
+  
+  return 524 < ano_val && ano_val <= 584 &&
+          2 < mid_val   && mid_val <= 14 &&
+          3 < cath_val  && cath_val <= 36;
+}
+
+bool is_button_open() {
+  if (connectionState != Connected) return;
+  pinMode(ANODE_PIN, OUTPUT);
+  digitalWrite(ANODE_PIN, HIGH);
+  delayMicroseconds(10);
+  uint16_t mid_val = analogRead(MID_PIN);
+  uint16_t cath_val = analogRead(CATHODE_PIN);
+  return (
+    140 < mid_val  && mid_val <= 205 &&
+    436 < cath_val && cath_val <= 475
+  );
+}
+
+bool is_button_closed() {
+  if (connectionState != Connected) return;
+  pinMode(ANODE_PIN, OUTPUT);
+  digitalWrite(ANODE_PIN, HIGH);
+  delayMicroseconds(10);
+  uint16_t mid_val = analogRead(MID_PIN);
+  uint16_t cath_val = analogRead(CATHODE_PIN);
+  return (  // button closed
+    334 < mid_val  && mid_val <= 394 &&
+    399 < cath_val && cath_val <= 439
+  );
+}
+
+CheckState next(CheckState current) { switch (current) {
+  case JustChillin:
+    if (is_disconnected()) return current;
+    else return Testable;
+
+  case Testable:
+    if (is_disconnected()) return JustChillin;
+    else if (digitalRead(BUTTON_PIN) == LOW) return Testing;
+    else return current;
+
+  case Testing:
+    if (is_disconnected()) return JustChillin;
+    if (button_open == Pending) {
+      if (is_button_open()) {
+        button_open = Passed;
+      }
+    }
+//      } else if (is_button_closed()) {
+//        // special error case -- possible open/close confusion OR actual error
+//      } else {
+//        button_open = Failed;
+//      }
+//    } else {
+//      if (is_button_closed()) {
+//        button_closed = Passed;
+//      } else {
+//        button_closed = Failed;
+//      }
+//    }
+    return current;
+
+  default:
+    return Oops;
+}}
 
 void resetStuff() {
   pinMode(ANODE_PIN, INPUT);
   pinMode(CATHODE_PIN, INPUT);
+  state = JustChillin;
   connectionState = Disconnected;
   button_open = Pending;
   button_closed = Pending;
@@ -47,12 +128,6 @@ void resetStuff() {
                    {G,G,G}, {_,G,G}, {_,_,G}, {_,_,_}};
   showSeq(seq, 13, 9);
   showSeq(seq, 13, 9);
-}
-
-bool adc_within(uint8_t pin, uint16_t expected, uint16_t eps) {
-  uint16_t measured = analogRead(pin);
-  uint16_t error = (measured > expected) ? (measured - expected) : (expected - measured);
-  return error <= eps;
 }
 
 void updateConnectionState() {
@@ -131,37 +206,83 @@ uint8_t resultColour(Result res, uint32_t t) {
 }
 
 void present(int x, uint32_t t) {
-  if (connectionState == Disconnected) {
-    bool on =  !(t & 0b110000000);
-    bool ong = !(t & 0b111100000);
-    showFrame((on?(ong?R:Y):_), _, _);
-    return;
-  } else if (connectionState == ConnectionError) {
-    bool on = t & 0b11100000;
-    showFrame((on?R:_), _, _);
-    return;
+  switch (state) {
+    case JustChillin: {
+      bool on = (t & 0b100000000);
+      showFrame(on ? Y : _, _, _);
+      return;
+    }
+    case Testable: {
+      bool con = is_connected();
+      digitalWrite(CONNECT_OK,  con);
+      digitalWrite(CONNECT_NOK, !con);
+      float ts = (float)t / 1000 * PI * 4;
+      float ts2 = ts + PI;
+      analogWrite(OPEN_OK, (sin(ts)/2 + 0.5) * 8);
+      analogWrite(OPEN_NOK, (cos(ts)/2 + 0.5) * 32);
+      analogWrite(CLOSED_OK, (sin(ts2)/2 + 0.5) * 8);
+      analogWrite(CLOSED_NOK, (cos(ts2)/2 + 0.5) * 32);
+      return;
+    }
+    case Testing: {
+      bool on = (t & 0b100000000);
+      uint8_t c_con = is_connected() ? G : R;
+      uint8_t c_open = on ? Y : _;
+      uint8_t c_closed = on ? _ : Y;
+      if (button_open == Passed) {
+        c_open = G;
+      }
+//      if (button_open == Pending && is_button_closed()) {
+//        c_open = on ? Y : _;
+//        c_closed = on ? _ : Y;
+//      }
+//      uint8_t c_open = (button_open == Pending) ? (on ? Y : _) : (button_open == Passed) ? G : R;
+//      uint8_t c_closed = _;
+//      if (button_open != Pending) {
+//        c_closed = (button_closed == Pending) ? (on ? Y : _) : (button_closed == Passed) ? G : R;
+//      }
+      showFrame(c_con, c_open, c_closed);
+      return;
+    }
+    case Oops: {
+      // slow flash
+      uint8_t c = (t & 0b1000000000) ? R : _;
+      showFrame(c, c, c);
+      return;
+    }
   }
-
-  if (button_open == Passed && button_closed == Passed) {
-    Frame seq[12] = {{G,G,G}, {_,G,G}, {G,_,G}, {G,G,_}, {G,G,G}, {G,G,G},
-                     {G,G,G}, {G,G,_}, {G,_,G}, {_,G,G}, {G,G,G}, {G,G,G}};
-    showSeq(seq, 12, 50);
-    return;
-  }
-
-  uint8_t connection_c = G;
-  uint8_t button_open_c = _;
-  uint8_t button_closed_c = _;
   
-  if (button_open == Passed) {
-    button_open_c = G;
-  }
-
-  if (button_closed == Passed) {
-    button_closed_c = G;
-  }
-
-  showFrame(connection_c, button_open_c, button_closed_c);
+//  if (connectionState == Disconnected) {
+//    bool on =  !(t & 0b110000000);
+//    bool ong = !(t & 0b111100000);
+//    showFrame((on?(ong?R:Y):_), _, _);
+//    return;
+//  } else if (connectionState == ConnectionError) {
+//    bool on = t & 0b11100000;
+//    showFrame((on?R:_), _, _);
+//    return;
+//  }
+//
+//  if (button_open == Passed && button_closed == Passed) {
+//    Frame seq[12] = {{G,G,G}, {_,G,G}, {G,_,G}, {G,G,_}, {G,G,G}, {G,G,G},
+//                     {G,G,G}, {G,G,_}, {G,_,G}, {_,G,G}, {G,G,G}, {G,G,G}};
+//    showSeq(seq, 12, 50);
+//    return;
+//  }
+//
+//  uint8_t connection_c = G;
+//  uint8_t button_open_c = _;
+//  uint8_t button_closed_c = _;
+//  
+//  if (button_open == Passed) {
+//    button_open_c = G;
+//  }
+//
+//  if (button_closed == Passed) {
+//    button_closed_c = G;
+//  }
+//
+//  showFrame(connection_c, button_open_c, button_closed_c);
 
 //  if (
 //  else {
@@ -233,13 +354,13 @@ void setup() {
   pinMode(OPEN_NOK, OUTPUT);
   pinMode(CLOSED_OK, OUTPUT);
   pinMode(CLOSED_NOK, OUTPUT);
-  pinMode(RESET_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   resetStuff();
 }
 
 void loop() {
-  if (digitalRead(RESET_PIN) == LOW) resetStuff();
-  updateConnectionState();
-  updateButtonStatus();
+  state = next(state);
+//  updateConnectionState();
+//  updateButtonStatus();
   present(0, millis());
 }
