@@ -54,6 +54,7 @@ bool is_button_open() {
   return (
     140 < mid_val  && mid_val <= 205 &&
     436 < cath_val && cath_val <= 475
+//    && digitalRead(CATHODE_PIN)  // OH NOOOOOOOOO it doesn't work hahahahahahahahhahaha
   );
 }
 
@@ -65,7 +66,8 @@ bool is_button_closed() {
   uint16_t cath_val = analogRead(CATHODE_PIN);
   return (  // button closed
     334 < mid_val  && mid_val <= 394 &&
-    399 < cath_val && cath_val <= 439
+    399 < cath_val && cath_val <= 439 &&
+    !digitalRead(CATHODE_PIN)
   );
 }
 
