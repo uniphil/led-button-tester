@@ -30,7 +30,10 @@ bool is_disconnected() {
   delayMicroseconds(10);
   uint16_t ano_val = analogRead(ANODE_PIN);
   uint16_t cath_val = analogRead(CATHODE_PIN);
-  return 1000 < ano_val && cath_val <= 2;
+  return (
+    ano_val > 900 &&
+    cath_val <= 10
+  );
 }
 
 bool is_connected() {
@@ -40,9 +43,9 @@ bool is_connected() {
   uint16_t mid_val = analogRead(MID_PIN);
   uint16_t cath_val = analogRead(CATHODE_PIN);
   
-  return 524 < ano_val && ano_val <= 584 &&
-          2 < mid_val   && mid_val <= 14 &&
-          3 < cath_val  && cath_val <= 36;
+  return 514 < ano_val  && ano_val <= 594 &&
+           2 < mid_val  && mid_val  <= 19 &&
+           3 < cath_val && cath_val <= 38;
 }
 
 bool is_button_open() {
@@ -52,9 +55,8 @@ bool is_button_open() {
   uint16_t mid_val = analogRead(MID_PIN);
   uint16_t cath_val = analogRead(CATHODE_PIN);
   return (
-    140 < mid_val  && mid_val <= 205 &&
-    436 < cath_val && cath_val <= 475
-//    && digitalRead(CATHODE_PIN)  // OH NOOOOOOOOO it doesn't work hahahahahahahahhahaha
+    130 < mid_val  && mid_val <= 215 &&
+    426 < cath_val && cath_val <= 485
   );
 }
 
@@ -65,9 +67,8 @@ bool is_button_closed() {
   uint16_t mid_val = analogRead(MID_PIN);
   uint16_t cath_val = analogRead(CATHODE_PIN);
   return (  // button closed
-    334 < mid_val  && mid_val <= 394 &&
-    399 < cath_val && cath_val <= 439 &&
-    !digitalRead(CATHODE_PIN)
+    304 < mid_val  && mid_val <= 424 &&
+    369 < cath_val && cath_val <= 469
   );
 }
 
@@ -211,7 +212,15 @@ void happyPingPong() {
   Frame seq[12] = {{G,G,G}, {_,G,G}, {G,_,G}, {G,G,_}, {G,G,G},
                    {G,G,G}, {G,G,_}, {G,_,G}, {_,G,G}, {G,G,G}};
   showSeq(seq, 10, 40);
-  delay(300);
+  delay(200);
+  pinMode(ANODE_PIN, OUTPUT);
+  for (int i = 0; i < 2; i++) {
+    digitalWrite(ANODE_PIN, HIGH);
+    delay(50);
+    digitalWrite(ANODE_PIN, LOW);
+    delay(60);
+  }
+  delay(400);
 }
 
 void loop() {
